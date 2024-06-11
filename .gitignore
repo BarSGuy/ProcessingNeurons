@@ -1,0 +1,15 @@
+/wandb
+/__pychache__
+/.vscode
+/activation_models/__pychache__
+/activation_dataset
+/datasets
+/output
+/pre_trained_models
+/source_dataset_training/__pychache__
+/utils/__pychache__
+/attnsub_environment2.yml
+dataset_creator.py
+garbage.py
+main_old.py
+model.py
