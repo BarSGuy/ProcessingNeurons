@@ -3,7 +3,7 @@ general:
   device: 0
 
 source_dataset:
-  name: zinc12k
+  name: cifar10
 
 neuron_dataset:
   bs: 4
@@ -11,7 +11,7 @@ neuron_dataset:
   val_ratio: 0.5
 
 model:
-  symmetry: "S_n"
+  symmetry: "I"
   num_layers: 3
   dim_embed: 48
   residual: True

@@ -188,7 +188,6 @@ class ActivationDataset(InMemoryDataset):
 
     def get(self, idx):
         data = self._data.__class__()
-
         for key in self._data.keys():
             item, slices = self._data[key], self.slices[key]
             s = slice(slices[idx], slices[idx + 1])
