@@ -54,7 +54,7 @@ class SnSymmetryBasedModel(nn.Module):
         batch.x = self.pooling(batch)
 
         if self.use_sigmoid:
-            batch.x = nn.sigmoid(batch.x)
+            batch.x = torch.sigmoid(batch.x)
 
         return batch.x
     
@@ -284,7 +284,7 @@ class MLPs(nn.Module):
         # pooling
         x = self.layers[-1](x)
         if self.use_sigmoid:
-            x = nn.sigmoid(x)
+            x = torch.sigmoid(x)
         return x
 ##############################################################
 ######################### Helpers ############################
@@ -527,6 +527,10 @@ def get_model(cfg):
         if dataset_name == "zinc12k":
             cfg.model.d_0 = 28416 # L * d * n_max
             cfg.model.use_sigmoid = False
+            return MLPs(cfg=cfg)
+        elif dataset_name == "cifar10":
+            cfg.model.d_0 = 349184  # L * d_max * sum_neruons
+            cfg.model.use_sigmoid = True
             return MLPs(cfg=cfg)
         else:
             raise NotImplementedError(

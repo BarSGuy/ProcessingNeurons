@@ -167,6 +167,8 @@ class ActivationDataset(InMemoryDataset):
                 for k in self.hooks.keys():
                     self.hooks[k].clear()
                 x = total_activations
+                if self.cfg.model.symmetry == "I":  # adding padding
+                    x = x.reshape(1, -1)
                 indices = layers
 
                 data_obj = Data(x=x,
@@ -195,28 +197,39 @@ class ActivationDataset(InMemoryDataset):
         return data
 
     def shuffle(self):
-        path = f'./source_dataset_training/{self.cfg.source_dataset.name}_indices.json'
-        with open(path, 'r') as file:
-            indices = json.load(file)
+        pass
+        # dataset.shuffle()
+        # shuffled_data = self._data.__class__()
+        # generator = torch.Generator().manual_seed(42)
+        # indices = torch.randperm(
+        #     len(shuffled_data), generator=generator).tolist()
+        # # print(indices[:10])
+        # # path = f'./source_dataset_training/{self.cfg.source_dataset.name}_indices.json'
+        # shuffled_data = shuffled_data[indices]
+        # self._data = shuffled_data
 
-        # Create a new data object to store shuffled data
-        shuffled_data = self._data.__class__()
-        for key in self._data.keys():
-            item = self._data[key]
-            slices = self.slices[key]
-            # Create a list to store the shuffled items
-            shuffled_items = []
-            for idx in indices:
-                s = slice(slices[idx], slices[idx + 1])
-                shuffled_items.append(item[s])
-            # Concatenate the shuffled items back into a single tensor
-            shuffled_data[key] = torch.cat(shuffled_items, dim=0)
+        # with open(path, 'r') as file:
+        #     indices = json.load(file)
 
-        self._data = shuffled_data
+        # # Create a new data object to store shuffled data
+        # shuffled_data = self._data.__class__()
+        # for key in self._data.keys():
+        #     item = self._data[key]
+        #     slices = self.slices[key]
+        #     # Create a list to store the shuffled items
+        #     shuffled_items = []
+        #     for idx in indices:
+        #         s = slice(slices[idx], slices[idx + 1])
+        #         shuffled_items.append(item[s])
+        #     # Concatenate the shuffled items back into a single tensor
+        #     shuffled_data[key] = torch.cat(shuffled_items, dim=0)
+
+        # self._data = shuffled_data
     
 
 
 def create_custom_dataloader(cfg, activation_dataset, manual_shuffle = False):
+    manual_shuffle = False
     if manual_shuffle:
         activation_dataset.shuffle()
     return DataLoader(activation_dataset, batch_size=cfg.neuron_dataset.bs, shuffle=True, num_workers=cfg.neuron_dataset.num_workers, follow_batch=['x', 'deep_sets_indices'])
@@ -238,6 +251,16 @@ def get_activation_dataloaders(cfg, pre_trained_model):
         logging.info(
             
             f"Done!")
+        
+        generator = torch.Generator().manual_seed(42)
+        indices = torch.randperm(
+            len(activation_dataset), generator=generator).tolist()
+        # # print(indices[:10])
+        # # path = f'./source_dataset_training/{self.cfg.source_dataset.name}_indices.json'
+        activation_dataset = activation_dataset[indices]
+        # activation_dataset.shuffle()
+        activation_dataset = activation_dataset[:
+                                                cfg.training.train_set_size_cap]
         return create_custom_dataloader(cfg=cfg, activation_dataset=activation_dataset)
     
     if cfg.source_dataset.name == "zinc12k":
@@ -267,8 +290,8 @@ def get_activation_dataloaders(cfg, pre_trained_model):
             f"   - Training subset: {(1 - cfg.neuron_dataset.val_ratio) * 100:.2f}%\n"
             f"   - Validation subset: {cfg.neuron_dataset.val_ratio * 100:.2f}%\n"
             "3. Splitting the validation subset into validation and test subsets with the following ratios:\n"
-            f"   - Validation subset: {cfg.neuron_dataset.val_ratio * 100:.2f}%\n"
-            f"   - Test subset: {(1 - cfg.neuron_dataset.val_ratio) * 100:.2f}%"
+            f"   - Validation subset: {cfg.neuron_dataset.val_ratio * cfg.neuron_dataset.val_ratio * 100:.2f}%\n"
+            f"   - Test subset: {(cfg.neuron_dataset.val_ratio * cfg.neuron_dataset.val_ratio) * 100:.2f}%"
         )
 
         activation_test_dataloader = prepare_activation_dataloader(cfg,
@@ -308,7 +331,7 @@ def split_dataloader(dataloader, val_size=0.2, shuffle=True, seed=42):
         # dataset.shuffle()
         generator = torch.Generator().manual_seed(seed)
         indices = torch.randperm(len(dataset), generator=generator).tolist()
-        print(indices[:10])
+        # print(indices[:10])
         dataset = dataset[indices]
 
     # Calculate the split indices

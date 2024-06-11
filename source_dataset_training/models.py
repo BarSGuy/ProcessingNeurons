@@ -135,6 +135,7 @@ def get_model(cfg):
         
     elif cfg.source_dataset.name == "cifar10":
         model = resnet18(pretrained=True)
+        
         cfg.source_dataset.model = edict({})
         cfg.source_dataset.model.dim_embed = 512
         cfg.source_dataset.model.num_layers = 10

@@ -3,7 +3,7 @@ general:
   device: 0
 
 source_dataset:
-  name: cifar10
+  name: zinc12k
 
 neuron_dataset:
   bs: 4
@@ -19,6 +19,7 @@ model:
   task: "gap_minimization"
 
 training:
+  train_set_size_cap: 10000
   lr: 0.001
   task: "regression"
   optim: "adam"

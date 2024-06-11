@@ -32,7 +32,7 @@ def get_pretrained_model_on_source_dataset(cfg):
             model = model.to(device)
             return model
     elif cfg.source_dataset.name == 'cifar10':
-        model = resnet18(pretrained=True)
+        model = models.get_model(cfg)
         model = model.to(device)
         return model
     else:

@@ -89,6 +89,8 @@ def override_config_with_args(cfg, return_nested=True):
                         default=cfg['model']['dim_output'], help="dim_output")
 
     # training
+    parser.add_argument("--training__train_set_size_cap", type=float,
+                        default=cfg['training']['train_set_size_cap'], help="train_set_size_cap")
     parser.add_argument("--training__lr", type=float,
                         default=cfg['training']['lr'], help="lr")
     parser.add_argument("--training__task", type=str,
@@ -134,6 +136,7 @@ def override_config_with_args(cfg, return_nested=True):
     cfg['model']['dim_output'] = args.model__dim_output
 
     # training
+    cfg['training']['train_set_size_cap'] = args.training__train_set_size_cap
     cfg['training']['lr'] = args.training__lr
     cfg['training']['task'] = args.training__task
     cfg['training']['optim'] = args.training__optim
