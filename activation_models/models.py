@@ -5,6 +5,133 @@ from torch_scatter import scatter
 import torch.nn.functional as F
 from torch_geometric.nn import global_mean_pool
 
+
+##############################################################
+######################## Main Models #########################
+##############################################################
+
+class SnSymmetryBasedModel(nn.Module):
+    def __init__(self, cfg) -> None:
+        super(SnSymmetryBasedModel, self).__init__()
+        self.cfg = cfg
+
+        self.d_0 = cfg.model.d_0
+        self.hidden_dim = cfg.model.dim_embed
+        self.residual = cfg.model.residual
+        self.num_layers = cfg.model.num_layers
+        self.output_dim = cfg.model.dim_output
+        self.use_sigmoid = cfg.model.use_sigmoid
+
+        self.layers = nn.ModuleList()
+        self.batch_norms = nn.ModuleList()
+
+        # Initial layer
+        self.layers.append(EquivDeepSetLayer(
+            d_in=self.d_0, d_out=self.hidden_dim))
+        self.batch_norms.append(nn.BatchNorm1d(self.hidden_dim))
+
+        # Hidden layers
+        for _ in range(1, self.num_layers):
+            self.layers.append(EquivDeepSetLayer(
+                d_in=self.hidden_dim, d_out=self.hidden_dim))
+            self.batch_norms.append(nn.BatchNorm1d(self.hidden_dim))
+
+        # Final layer - pooling
+        self.pooling = InvariantDeepSetLayer(
+            d_in=self.hidden_dim, d_out=self.output_dim)
+
+    def forward(self, batch):
+        for layer, bn in zip(self.layers, self.batch_norms):
+            # batch_x = F.relu(bn(layer(batch)))
+            batch_x = bn(layer(batch))
+                       
+            if self.residual and batch.x.shape[-1] == batch_x.shape[-1]:
+                batch.x = batch.x + batch_x
+            else:
+                batch.x = batch_x
+
+        # Pooling
+        batch.x = self.pooling(batch)
+
+        if self.use_sigmoid:
+            batch.x = nn.sigmoid(batch.x)
+
+        return batch.x
+    
+##############################################################
+########################## Blocks ############################
+##############################################################
+
+class EquivDeepSetLayer(nn.Module):
+    def __init__(self, d_in, d_out):
+        super(EquivDeepSetLayer, self).__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(d_in, d_out),
+            nn.ReLU(),
+            nn.Linear(d_out, d_out)
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(d_in, d_out),
+            nn.ReLU(),
+            nn.Linear(d_out, d_out)
+        )
+
+    def forward(self, batch):
+        # Apply phi to each element in the set
+        x_phi = self.phi(batch.x)
+
+        # Sum over the elements in the set and apply rho
+        x_sum_broadcasted = self._get_x_sum_broadcasted(
+            x=batch.x, idx=batch.batch)
+        x_sum = self.rho(x_sum_broadcasted)
+
+        # Combine the outputs
+        x = x_phi + x_sum
+        return x
+
+    def _get_x_sum_broadcasted(self, x, idx):
+        x_sum = scatter(src=x, index=idx, dim=0, reduce='sum')
+        x_sum_broadcasted = x_sum[idx]
+        return x_sum_broadcasted
+
+class InvariantDeepSetLayer(nn.Module):
+    def __init__(self, d_in, d_out):
+        super(InvariantDeepSetLayer, self).__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(d_in, d_in),
+            nn.ReLU(),
+            nn.Linear(d_in, d_in)
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(d_in, d_in),
+            nn.ReLU(),
+            nn.Linear(d_in, d_out)
+        )
+
+    def forward(self, batch):
+        # Apply phi to each element in the set
+        x_phi = self.phi(batch.x)
+
+        # Sum over the elements in the set
+        x_sum = self._get_x_sum(x=x_phi, idx=batch.batch)
+
+        # Apply rho to the summed result
+        x_out = self.rho(x_sum)
+
+        return x_out
+
+    def _get_x_sum(self, x, idx):
+        x_sum = scatter(src=x, index=idx, dim=0, reduce='sum')
+        return x_sum
+    
+##############################################################
+##############################################################
+##############################################################
+##############################################################
+##############################################################
+##############################################################
+
+
 ##############################################################
 ###################### Main architecure ######################
 ##############################################################
@@ -120,30 +247,31 @@ class MLPs(nn.Module):
     def __init__(self, cfg) -> None:
         super(MLPs, self).__init__()
         self.cfg = cfg
-        d_0 = self.cfg.source_dataset.max_nodes * \
-            cfg.source_dataset.model.num_layers * cfg.source_dataset.model.dim_embed
-        d_hidden = self.cfg.model.dim_embed
-        d_final = self.cfg.model.dim_output
         
-        # d = self.cfg.source_dataset.model.dim_embed
-        # num_layers = self.cfg.model.num_layers
-        # L = self.cfg.source_dataset.model.num_layers
-        # d_hidden = self.cfg.model.dim_embed
-        # d_final = self.cfg.model.dim_output
+        self.d_0 = cfg.model.d_0
+        self.hidden_dim = cfg.model.dim_embed
+        self.residual = cfg.model.residual
+        self.num_layers = cfg.model.num_layers
+        self.output_dim = cfg.model.dim_output
+        self.use_sigmoid = cfg.model.use_sigmoid
+        
+        
+    
+        
         self.layers = nn.ModuleList()
         self.bns = nn.ModuleList()
 
         # Create the layers
         
         # layer 1:
-        self.layers.append(nn.Linear(d_0, d_hidden))
-        self.bns.append(nn.BatchNorm1d(d_hidden))
+        self.layers.append(nn.Linear(self.d_0, self.hidden_dim))
+        self.bns.append(nn.BatchNorm1d(self.hidden_dim))
         # layers 2 - L:
         for _ in range(1, cfg.model.num_layers):
-            self.layers.append(nn.Linear(d_hidden, d_hidden))
-            self.bns.append(nn.BatchNorm1d(d_hidden))
+            self.layers.append(nn.Linear(self.hidden_dim, self.hidden_dim))
+            self.bns.append(nn.BatchNorm1d(self.hidden_dim))
         # output layer:
-        self.layers.append(nn.Linear(d_hidden, d_final))
+        self.layers.append(nn.Linear(self.hidden_dim, self.output_dim))
         
     def forward(self, batch):
         x = batch.x
@@ -155,7 +283,8 @@ class MLPs(nn.Module):
                 x = x_
         # pooling
         x = self.layers[-1](x)
-        x = global_mean_pool(x, batch.batch)
+        if self.use_sigmoid:
+            x = nn.sigmoid(x)
         return x
 ##############################################################
 ######################### Helpers ############################
@@ -233,6 +362,36 @@ class NeuronInvariantDeepSetLayer_translation(nn.Module):
         return x_sum
 
 
+class NeuronInvariantDeepSetLayer(nn.Module):
+    def __init__(self, d_in, d_out):
+        super(NeuronInvariantDeepSetLayer, self).__init__()
+        self.phi = nn.Sequential(
+            nn.Linear(d_in, d_in),
+            nn.ReLU(),
+            nn.Linear(d_in, d_in)
+        )
+        self.rho = nn.Sequential(
+            nn.Linear(d_in, d_in),
+            nn.ReLU(),
+            nn.Linear(d_in, d_out)
+        )
+
+    def forward(self, batch):
+        # Apply phi to each element in the set
+        x_phi = self.phi(batch.x)
+
+        # Sum over the elements in the set
+        x_sum = self.get_x_sum(x=x_phi, idx=batch.batch)
+
+        # Apply rho to the summed result
+        x_sum = self.rho(x_sum)
+
+        return x_sum
+
+    def get_x_sum(self, x, idx):
+        x_sum = scatter(src=x, index=idx,
+                        dim=0, reduce='sum')
+        return x_sum
 
 
 class NeuronEquivDeepSetLayer(nn.Module):
@@ -266,37 +425,6 @@ class NeuronEquivDeepSetLayer(nn.Module):
                         dim=0, reduce='sum')
         x_sum_brodcasted = x_sum[idx]
         return x_sum_brodcasted
-
-class NeuronInvariantDeepSetLayer(nn.Module):
-    def __init__(self, d_in, d_out):
-        super(NeuronInvariantDeepSetLayer, self).__init__()
-        self.phi = nn.Sequential(
-            nn.Linear(d_in, d_in),
-            nn.ReLU(),
-            nn.Linear(d_in, d_in)
-        )
-        self.rho = nn.Sequential(
-            nn.Linear(d_in, d_in),
-            nn.ReLU(),
-            nn.Linear(d_in, d_out)
-        )
-
-    def forward(self, batch):
-        # Apply phi to each element in the set
-        x_phi = self.phi(batch.x)
-
-        # Sum over the elements in the set
-        x_sum = self.get_x_sum(x=x_phi, idx=batch.batch)
-
-        # Apply rho to the summed result
-        x_sum = self.rho(x_sum)
-
-        return x_sum
-
-    def get_x_sum(self, x, idx):
-        x_sum = scatter(src=x, index=idx,
-                        dim=0, reduce='sum')
-        return x_sum
 
 
 
@@ -373,14 +501,37 @@ class NeuronInvariantDeepSetLayer(nn.Module):
 
 
 def get_model(cfg):
-    if cfg.model.symmetry == "set":
-        if cfg.source_dataset.name == "zinc12k":
-            return NeuronArchitecture(cfg=cfg)
-        elif cfg.source_dataset.name == "cifar10":
-            return NeuronArchitecture_images(cfg=cfg)
+    model_symmetry = cfg.model.symmetry
+    dataset_name = cfg.source_dataset.name
+
+    if model_symmetry == "S_n":
+        if dataset_name == "zinc12k":
+            cfg.model.d_0 = 768 # L * d
+            cfg.model.use_sigmoid = False
+            return SnSymmetryBasedModel(cfg=cfg)
         else:
-            raise NotImplementedError(f"Model for source dataset {cfg.source_dataset.name} not implemented")
-    elif cfg.model.symmetry == "none":
-        return MLPs(cfg=cfg)
+            raise NotImplementedError(
+                f"Model for source dataset '{dataset_name}' not implemented")
+
+    elif model_symmetry == "S_n_cross_S_m":
+        if dataset_name == "cifar10":
+            cfg.model.d_0 = 512 # L * d Double check!!!
+            cfg.model.use_sigmoid = False
+            pass
+            # return NeuronArchitectureImages(cfg=cfg)
+        else:
+            raise NotImplementedError(
+                f"Model for source dataset '{dataset_name}' not implemented")
+
+    elif model_symmetry == "I":
+        if dataset_name == "zinc12k":
+            cfg.model.d_0 = 28416 # L * d * n_max
+            cfg.model.use_sigmoid = False
+            return MLPs(cfg=cfg)
+        else:
+            raise NotImplementedError(
+                f"Model for source dataset '{dataset_name}' not implemented")
+
     else:
-        raise ValueError(f"Invalid symmetry type: {cfg.model.symmetry}. Expected 'set' or 'none'.")
+        raise ValueError(
+            f"Invalid symmetry type: {model_symmetry}. Expected 'S_n', 'S_n_cross_S_m', or 'I'.")

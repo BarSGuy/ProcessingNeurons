@@ -6,6 +6,8 @@ from source_dataset_training import data
 import logging
 from tqdm import tqdm
 import torch.nn as nn
+import json
+
 
 def register_hooks(cfg, model):
     activations = defaultdict(list)
@@ -45,7 +47,7 @@ class ActivationDataset(InMemoryDataset):
 
         # Register hooks to capture activations
         self.hooks = register_hooks(cfg=self.cfg, model=self.model)
-        self.n_max = data.get_n_max_of_dataset(cfg)
+        self.max_neuron_number = cfg.source_dataset.max_neuron_number
         super().__init__(root, transform, pre_transform)
         self._data, self.slices = torch.load(self.processed_paths[0])
 
@@ -71,7 +73,7 @@ class ActivationDataset(InMemoryDataset):
         data_list = []
         # count = 0
         # TODO: currently working only for regression tasks!
-        self.cfg.model.max_dim_size = 100
+        
         with torch.no_grad():
             for batch in tqdm(self.original_dataset, desc="Processing batches", unit="batch"):
                 batch = batch.to(self.cfg.general.device)
@@ -82,69 +84,36 @@ class ActivationDataset(InMemoryDataset):
                 # Collect activations
                 layer_activations = {k: torch.cat(
                     v, 0) for k, v in self.hooks.items()}
-
+                self.cfg.source_dataset.num_layers = len(layer_activations)
                 # Concatenate activations across the feature dimension
                 activations_concat = torch.cat(
                     [act for act in layer_activations.values()], dim=1)  # shape n x d*L
-                if self.cfg.model.symmetry == "none": # adding padding
+                if self.cfg.model.symmetry == "I": # adding padding
                     n, d = activations_concat.shape
-                    if n > self.n_max:
+                    if n > self.max_neuron_number:
                         raise ValueError(
-                            "self.n_max must be greater than or equal to n")
+                            "self.max_neuron_number must be greater than or equal to n")
                     activations_concat = torch.cat([activations_concat, torch.zeros(
-                        (self.n_max - activations_concat.size(0), activations_concat.size(1)))], dim=0)
+                        (self.max_neuron_number - activations_concat.size(0), activations_concat.size(1)))], dim=0)
                     activations_concat = activations_concat.reshape(1, -1)
-                elif self.cfg.model.symmetry == "set":
+                elif self.cfg.model.symmetry == "S_n":
                     pass
                 else:
                     raise ValueError(
                         f"Invalid symmetry type: {self.cfg.model.symmetry}. Expected 'set' or 'none'.")
-                # if self.cfg.model.symmetry == "set":
-                #     activations_concat = torch.cat(
-                #         [act for act in layer_activations.values()], dim=1) # shape n x d*L
-                # elif self.cfg.model.symmetry == "none":
-                #     activations_concat = torch.cat(
-                #         [act for act in layer_activations.values()], dim=1)
-                #     # padding
-                #     n, d = activations_concat.shape
-                #     if n > self.n_max:
-                #         raise ValueError(
-                #             "self.n_max must be greater than or equal to n")
-                #     activations_concat = torch.cat([activations_concat, torch.zeros(
-                #         (self.n_max - activations_concat.size(0), activations_concat.size(1)))], dim=0)
-                #     print("guy")
-                # req_pad = activations_concat.shape[0] * \
-                #     activations_concat.shape[1]
-                # if req_pad > self.cfg.model.max_dim_size:
-                #     self.cfg.model.max_dim_size = req_pad
                 
                 # Clear the activations for the next data point
                 for k in self.hooks.keys():
                     self.hooks[k].clear()
 
-                # # src dst for deep sets
-                # deep_sets_indices_all_layers = []
-                # current_index = 0
-                # for layer, act in layer_activations.items():
-                #     layer_size = act.shape[0]
-                #     deep_sets_indices = torch.repeat_interleave(
-                #         torch.tensor([current_index]), layer_size).reshape(-1, 1)
-                #     deep_sets_indices_all_layers.append(deep_sets_indices)
-                #     current_index += 1
-                # num_layers = torch.tensor(current_index)
 
                 # Create a Data object
                 x = activations_concat
-                # make a list of tensors a torch tensor
-                # deep_sets_indices_all_layers = torch.cat(
-                #     deep_sets_indices_all_layers, dim=0)
-                # data_obj = Data(x=x, activation_idx=deep_sets_indices_all_layers,
-                #                 y=correct, num_layers=num_layers)
+
                 data_obj = Data(x=x,
                                 y=correctness)
                 data_list.append(data_obj)
-                # count += 1
-                # print(f"Processed {count} elements")
+
 
         if self.pre_transform is not None:
             data_list = [self.pre_transform(data) for data in data_list]
@@ -168,19 +137,16 @@ class ActivationDataset(InMemoryDataset):
                 layer_activations = {k: torch.cat(
                     v, 0) for k, v in self.hooks.items()}
 
-
                 total_activations = torch.tensor([])
                 layers = torch.tensor([])
                 layer = 0
-                d_max = 512
+                d_max = self.cfg.source_dataset.model.dim_embed
                 for layer_name, activations in layer_activations.items():
                     # print(f"Layer: {layer_name}")
                     # print(f"Activations: {activations}")
                     if layer_name == 67: # softmax layer
                         b, d = activations.shape
                         num_pixels = 1
-                    # elif layer_name <= 65:
-                    #     continue
                     else:
                         b, d, n_1, n_2 = activations.shape
                         num_pixels = n_1 * n_2
@@ -202,11 +168,7 @@ class ActivationDataset(InMemoryDataset):
                     self.hooks[k].clear()
                 x = total_activations
                 indices = layers
-                # make a list of tensors a torch tensor
-                # deep_sets_indices_all_layers = torch.cat(
-                #     deep_sets_indices_all_layers, dim=0)
-                # data_obj = Data(x=x, activation_idx=deep_sets_indices_all_layers,
-                #                 y=correct, num_layers=num_layers)
+
                 data_obj = Data(x=x,
                                 num_layers = torch.tensor([layer]),
                                 activation_idx=indices,
@@ -233,8 +195,31 @@ class ActivationDataset(InMemoryDataset):
             data[key] = item[s]
         return data
 
+    def shuffle(self):
+        path = f'./source_dataset_training/{self.cfg.source_dataset.name}_indices.json'
+        with open(path, 'r') as file:
+            indices = json.load(file)
 
-def create_custom_dataloader(cfg, activation_dataset):
+        # Create a new data object to store shuffled data
+        shuffled_data = self._data.__class__()
+        for key in self._data.keys():
+            item = self._data[key]
+            slices = self.slices[key]
+            # Create a list to store the shuffled items
+            shuffled_items = []
+            for idx in indices:
+                s = slice(slices[idx], slices[idx + 1])
+                shuffled_items.append(item[s])
+            # Concatenate the shuffled items back into a single tensor
+            shuffled_data[key] = torch.cat(shuffled_items, dim=0)
+
+        self._data = shuffled_data
+    
+
+
+def create_custom_dataloader(cfg, activation_dataset, manual_shuffle = False):
+    if manual_shuffle:
+        activation_dataset.shuffle()
     return DataLoader(activation_dataset, batch_size=cfg.neuron_dataset.bs, shuffle=True, num_workers=cfg.neuron_dataset.num_workers, follow_batch=['x', 'deep_sets_indices'])
 
 
@@ -248,16 +233,19 @@ def get_activation_dataloaders(cfg, pre_trained_model):
     def prepare_activation_dataloader(cfg, dataset_type, dataset):
         logging.info(
             f"Preparing the activations of {cfg.source_dataset.name}, the {dataset_type} dataset: {len(dataset.dataset)} samples")
+        
         activation_dataset = ActivationDataset(
             cfg=cfg, root=f"{activations_dataset_path}_{dataset_type}_{cfg.model.symmetry}", model=pre_trained_model, original_dataset=dataset)
         logging.info(
+            
             f"Done!")
         return create_custom_dataloader(cfg=cfg, activation_dataset=activation_dataset)
+    
     if cfg.source_dataset.name == "zinc12k":
-        activation_train_dataloader = prepare_activation_dataloader(cfg,
-            "val", dataloader["val"])
-        activation_val_test_dataloader = prepare_activation_dataloader(cfg,
-            "test", dataloader["test"])
+        activation_train_dataloader = prepare_activation_dataloader(cfg=cfg,
+            dataset_type="val", dataset=dataloader["val"])
+        activation_val_test_dataloader = prepare_activation_dataloader(cfg=cfg,
+            dataset_type="test", dataset=dataloader["test"])
 
         logging.info(
             "Dataset splitting:\n"
@@ -267,9 +255,10 @@ def get_activation_dataloaders(cfg, pre_trained_model):
             f"   - Validation subset: {cfg.neuron_dataset.val_ratio * 100:.2f}%\n"
             f"   - Test subset: {(1 - cfg.neuron_dataset.val_ratio) * 100:.2f}%"
         )
-        activation_val_dataloader, activation_test_dataloader = split_dataloader(dataloader=activation_val_test_dataloader,val_size=cfg.neuron_dataset.val_ratio, shuffle=False, seed=cfg.general.seed)
+        activation_val_dataloader, activation_test_dataloader = split_dataloader(dataloader=activation_val_test_dataloader,val_size=cfg.neuron_dataset.val_ratio, shuffle=True, seed=42)
 
         return activation_train_dataloader, activation_val_dataloader, activation_test_dataloader
+    
     elif cfg.source_dataset.name == "cifar10":
 
         logging.info(
@@ -295,6 +284,8 @@ def get_activation_dataloaders(cfg, pre_trained_model):
         return activation_train_dataloader, activation_val_dataloader, activation_test_dataloader
 
 
+
+
 def split_dataloader(dataloader, val_size=0.2, shuffle=True, seed=42):
     """
     Splits a PyTorch Geometric DataLoader into validation and test DataLoaders.
@@ -315,8 +306,10 @@ def split_dataloader(dataloader, val_size=0.2, shuffle=True, seed=42):
 
     # Optionally shuffle the dataset
     if shuffle:
+        # dataset.shuffle()
         generator = torch.Generator().manual_seed(seed)
         indices = torch.randperm(len(dataset), generator=generator).tolist()
+        print(indices[:10])
         dataset = dataset[indices]
 
     # Calculate the split indices
@@ -334,31 +327,3 @@ def split_dataloader(dataloader, val_size=0.2, shuffle=True, seed=42):
         test_dataset, batch_size=dataloader.batch_size, shuffle=False)
 
     return val_loader, test_loader
-
-
-# def get_activation_dataloaders(cfg, pre_trained_model):
-#     logging.info(f"Inferencing the {cfg.source_dataset.name} dataset, to get the activations")
-#     dataloader, num_target = data.get_dataloader(cfg=cfg, batch_size=1)
-#     logging.info(
-#         f"Preparing the activations as the datasets")
-#     activations_dataset_path = f'./activations_dataset/{cfg.source_dataset.name}'
-#     logging.info(
-#         f"          validation dataset: {len(dataloader['val'].dataset)}")       
-#     val_dataset = dataloader["val"]
-#     activation_val_dataset = ActivationDataset(
-#         activations_dataset_path + type, pre_trained_model, val_dataset)
-    
-#     activation_val_dataloader = create_custom_dataloader(
-#         activation_val_dataset)
-    
-#     logging.info(
-#         f"          test dataset: {len(dataloader['test'].dataset)}")
-#     test_dataset = dataloader["test"]
-#     activation_test_dataset = ActivationDataset(
-#         activations_dataset_path + type, pre_trained_model, test_dataset)
-
-#     activation_test_dataloader = create_custom_dataloader(
-#         activation_test_dataset)
-    
-#     return activation_val_dataloader, activation_test_dataloader
-

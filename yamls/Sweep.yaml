@@ -1,0 +1,59 @@
+# wandb sweep -p Sweep_neuron3 ./yamls/Sweep.yaml 
+
+program: main.py
+method: grid
+parameters:
+  general__seed:
+    values: [0, 1, 2]
+  general__device:
+    value: 0
+
+# Source Dataset
+  source_dataset__name:
+    value: "zinc12k"
+
+# Neuron Dataset
+  neuron_dataset__bs:
+    values: [8]
+  neuron_dataset__num_workers:
+    value: 4
+  neuron_dataset__val_ratio:
+    value: 0.5
+
+# Model
+  model__symmetry:
+    values: ["S_n, I"]
+  model__num_layers:
+    values: [3]
+  model__dim_embed:
+    values: [64]
+  model__residual:
+    values: [True]
+  model__task:
+    value: "gap_minimization"
+  model__dim_output:
+    value: 1
+
+# Training
+  training__lr:
+    values: [0.0001, 0.001, 0.01]
+  training__task:
+    value: "regression"
+  training__optim:
+    values: ["adam"]
+  training__sched__type:
+    value: "steplr"
+  training__sched__step_size:
+    values: [50]
+  training__sched__gamma:
+    values: [0.5]
+  training__wd:
+    values: [0, 0.0001]
+  training__epochs:
+    values: [200]
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args}

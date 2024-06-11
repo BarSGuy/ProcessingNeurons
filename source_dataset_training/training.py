@@ -33,9 +33,7 @@ def get_loss_func(cfg):
     if dataset_name not in dataset_info:
         raise ValueError(
             f"No loss function available for the dataset: {dataset_name}")
-
     return dataset_info[dataset_name]
-
 
 class RMSELoss(nn.MSELoss):
     def forward(self, output, target):

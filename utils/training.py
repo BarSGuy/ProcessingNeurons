@@ -17,17 +17,16 @@ def get_loss_func(cfg):
         'regression': nn.L1Loss(),
         'classification': nn.BCELoss()
     }
-    task_to_goal = {
-        'regression': "minimize",
-        'classification': "maximize"
-    }
 
-    task = cfg.training.task
-    if task not in task_to_loss:
-        raise ValueError(f"No loss function available for the task: {task}")
+    if cfg.training.task not in task_to_loss:
+        raise ValueError(
+            f"No loss function available for the task: {cfg.training.task}")
 
-    return task_to_loss[task], task_to_goal[task]
+    return task_to_loss[cfg.training.task]
 
+
+def get_goal(cfg):
+    return "minimize"
 
 def get_eval_func(cfg: Config) -> Callable:
     task_to_eval = {

@@ -1,8 +1,12 @@
 import torch
+import torch.nn as nn
 from torch_geometric.nn import GINEConv
 import torch_geometric.nn as tg_nn
 from ogb.graphproppred.mol_encoder import AtomEncoder
 from easydict import EasyDict as edict
+from source_dataset_training import data
+from source_dataset_training.resnet import *
+
 
 class CustomGINE(torch.nn.Module):
     def __init__(self, in_dim, emb_dim, layernorm, track_running_stats, num_edge_emb=4):
@@ -47,7 +51,9 @@ class GNNnetwork(torch.nn.Module):
 
         self.emb_dim = emb_dim
 
-        self.feature_encoder = feature_encoder
+        # self.feature_encoder = feature_encoder
+        self.feature_encoder = nn.Embedding(
+            num_embeddings=21, embedding_dim=emb_dim)
 
         self.gnn_layers = torch.nn.ModuleList()
         self.bn_layers = torch.nn.ModuleList()
@@ -83,7 +89,7 @@ class GNNnetwork(torch.nn.Module):
             batched_data.edge_index,
             batched_data.edge_attr,
         )
-        x = self.feature_encoder(x)  # (g, node, _)
+        x = self.feature_encoder(x.squeeze())  # (g, node, _)
 
         for gnn, bn in zip(self.gnn_layers, self.bn_layers):
             h = torch.relu(bn(gnn(x, edge_index, edge_attr)))
@@ -93,7 +99,9 @@ class GNNnetwork(torch.nn.Module):
             else:
                 x = h
 
-        x_pool = tg_nn.global_mean_pool(x, batched_data.batch)
+        
+        x_pool = tg_nn.global_add_pool(x, batched_data.batch)
+        # x_pool = tg_nn.global_mean_pool(x, batched_data.batch)
         # x = torch_scatter.segment_csr(
         #     src=x,
         #     indptr=batched_data.batch,
@@ -102,6 +110,8 @@ class GNNnetwork(torch.nn.Module):
         out = self.final_layers(x_pool)
 
         return out
+
+
 
 
 def get_model(cfg):
@@ -121,6 +131,16 @@ def get_model(cfg):
         cfg.source_dataset.model = edict({})
         cfg.source_dataset.model.dim_embed = 128
         cfg.source_dataset.model.num_layers = 6
+        cfg.source_dataset.max_neuron_number = data.get_n_max_of_dataset(cfg)
+        
+    elif cfg.source_dataset.name == "cifar10":
+        model = resnet18(pretrained=True)
+        cfg.source_dataset.model = edict({})
+        cfg.source_dataset.model.dim_embed = 512
+        cfg.source_dataset.model.num_layers = 10
+        cfg.source_dataset.max_neuron_number = 1
+        
+        
     else:
         raise NotImplementedError(
             f"Model for source cataset {cfg.source_dataset.name} not implemented"

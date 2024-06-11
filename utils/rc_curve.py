@@ -23,13 +23,26 @@ def get_rc_curve(pred_gap, actual_gap):
 
 
 def plot_rc_curve_from_best_metrics(task, source_dataset, best_metrics_set, best_metrics_none, run_number1, run_number2):
-    coverages_set = best_metrics_set["test_coverages"]
-    risks_set = best_metrics_set["test_risks"]
-    coverages_none = best_metrics_none["test_coverages"]
-    risks_none = best_metrics_none["test_risks"]
-    save_path = f'./output/{task}/{source_dataset}/{run_number1}_{run_number2}.pdf'
-    plot_rc_curve(save_path=save_path, coverages1=coverages_set, risks1=risks_set, legend1="Symmetry-based Model",
-                  coverages2=coverages_none, risks2=risks_none, legend2="MLP Model")
+    if run_number2 == None:
+        coverages_set = best_metrics_set["test_coverages"]
+        risks_set = best_metrics_set["test_risks"]
+        save_path = f'./output/{task}/{source_dataset}/{run_number1}.pdf'
+        plot_rc_curve(save_path=save_path, coverages1=coverages_set, risks1=risks_set, legend1="Symmetry-based Model",
+                      coverages2=coverages_set, risks2=risks_set, legend2="Symmetry-based Model")
+    elif run_number1 == None:
+        coverages_none = best_metrics_none["test_coverages"]
+        risks_none = best_metrics_none["test_risks"]
+        save_path = f'./output/{task}/{source_dataset}/{run_number2}.pdf'
+        plot_rc_curve(save_path=save_path, coverages1=coverages_none, risks1=risks_none, legend1="MLP Model",
+                      coverages2=coverages_none, risks2=risks_none, legend2="MLP Model")
+    else:
+        coverages_set = best_metrics_set["test_coverages"]
+        risks_set = best_metrics_set["test_risks"]
+        coverages_none = best_metrics_none["test_coverages"]
+        risks_none = best_metrics_none["test_risks"]
+        save_path = f'./output/{task}/{source_dataset}/{run_number1}_{run_number2}.pdf'
+        plot_rc_curve(save_path=save_path, coverages1=coverages_set, risks1=risks_set, legend1="Symmetry-based Model",
+                      coverages2=coverages_none, risks2=risks_none, legend2="MLP Model")
 
 
 def plot_rc_curve(save_path, coverages1, risks1, legend1, coverages2, risks2, legend2):

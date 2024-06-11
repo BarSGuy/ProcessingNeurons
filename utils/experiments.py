@@ -52,8 +52,11 @@ def train_activation_model():
     model = model.to(device)
     
     logging.info(f"Loading loss function.")
-    critn, goal = u_train.get_loss_func(cfg=cfg)
-
+    critn = u_train.get_loss_func(cfg=cfg)
+    
+    logging.info(f"Loading goal.")
+    goal = u_train.get_goal(cfg=cfg)
+    
     logging.info(f"Loading optimizer.")
     optim = u_train.get_optim_func(cfg=cfg, model=model)
 
@@ -65,7 +68,7 @@ def train_activation_model():
 
 
     logging.info(f"Starting Training.")
-    best_metrics = u_log.initialize_best_metrics(goal=goal)
+    best_metrics = u_log.initialize_best_metrics(cfg=cfg, goal=goal)
 
     pbar = tqdm(range(cfg.training.epochs))
     for epoch in pbar:
@@ -85,11 +88,11 @@ def train_activation_model():
         test_risks, test_coverages = u_rc.get_rc_curve(
             pred_gap=test_pred_gap, actual_gap=test_actual_gap)
 
-        best_metrics = u_log.update_best_metrics(
+        best_metrics = u_log.update_best_metrics(cfg=cfg,
             best_metrics=best_metrics, val_metric=val_metric, test_metric=test_metric, epoch=epoch, goal=goal, val_risks=val_risks, val_coverages=val_coverages, test_risks=test_risks, test_coverages=test_coverages)
 
-        u_log.log_wandb(epoch=epoch, optim=optim, loss_list=loss_list, val_metric=val_metric,
-                        test_metric=test_metric, best_metrics=best_metrics)
+        u_log.log_wandb(cfg=cfg, epoch=epoch, optim=optim, loss_list=loss_list, val_metric=val_metric,
+                        test_metric=test_metric, val_risks=val_risks, val_coverages=val_coverages, test_risks=test_risks, test_coverages=test_coverages, best_metrics=best_metrics)
 
         u_log.set_posfix(optim=optim, loss_list=loss_list, val_metric=val_metric,
                         test_metric=test_metric, pbar=pbar)
@@ -101,6 +104,12 @@ def train_activation_model():
         data=best_metrics, path=f'./output/{cfg.model.task}/{cfg.source_dataset.name}/{str(cfg.general.run_number)}')
 
     wandb.finish()
+    if cfg.model.symmetry == "S_n":
+        plot_rc_curve_from_best_metrics(
+            task=cfg.model.task, source_dataset=cfg.source_dataset.name, best_metrics_set=best_metrics, best_metrics_none=best_metrics, run_number1=cfg.general.run_number, run_number2=None)
+    elif cfg.model.symmetry == "I":
+        plot_rc_curve_from_best_metrics(
+            task=cfg.model.task, source_dataset=cfg.source_dataset.name, best_metrics_set=best_metrics, best_metrics_none=best_metrics, run_number1=None, run_number2=cfg.general.run_number)
     return cfg
 
 

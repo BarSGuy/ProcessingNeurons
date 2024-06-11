@@ -3,33 +3,32 @@ general:
   device: 0
 
 source_dataset:
-  name: cifar10
+  name: zinc12k
 
 neuron_dataset:
-  bs: 8
+  bs: 4
   num_workers: 4
   val_ratio: 0.5
 
 model:
-  symmetry: "set"
+  symmetry: "S_n"
   num_layers: 3
-  dim_embed: 24
+  dim_embed: 48
   residual: True
-  pooling: "mean" # TODO: need to actually make effective
-  task: "certainty"
   dim_output: 1
+  task: "gap_minimization"
 
 training:
   lr: 0.001
-  task: "classification"
+  task: "regression"
   optim: "adam"
+  wd: 0
+  epochs: 100
   sched:
     type: "steplr"
-    step_size: 25
+    step_size: 10
     gamma: 0.5
-  
-  wd: 0 
-  epochs: 50
+
 
 wandb:
   project_name: TESTT

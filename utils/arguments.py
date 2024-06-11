@@ -83,8 +83,6 @@ def override_config_with_args(cfg, return_nested=True):
                         default=cfg['model']['dim_embed'], help="dim_embed")
     parser.add_argument("--model__residual", type=bool,
                         default=cfg['model']['residual'], help="residual")
-    parser.add_argument("--model__pooling", type=str,
-                        default=cfg['model']['pooling'], help="pooling")
     parser.add_argument("--model__task", type=str,
                         default=cfg['model']['task'], help="task")
     parser.add_argument("--model__dim_output", type=int,
@@ -132,7 +130,6 @@ def override_config_with_args(cfg, return_nested=True):
     cfg['model']['num_layers'] = args.model__num_layers
     cfg['model']['dim_embed'] = args.model__dim_embed
     cfg['model']['residual'] = args.model__residual
-    cfg['model']['pooling'] = args.model__pooling
     cfg['model']['task'] = args.model__task
     cfg['model']['dim_output'] = args.model__dim_output
 

@@ -6,7 +6,10 @@ import torch
 from utils import my_logging as u_log
 from tqdm import tqdm
 import os
-from pre_trained_models.resnet import *
+from source_dataset_training.resnet import *
+
+
+
 
 def get_pretrained_model_on_source_dataset(cfg):
     logging.info(f"Loading the pre-trained model on {cfg.source_dataset.name}.")
@@ -24,8 +27,11 @@ def get_pretrained_model_on_source_dataset(cfg):
         else:
             logging.info(
                 f"The pre-trained model on {cfg.source_dataset.name} doesn't exists! Training from scratch!.")
+            train_zinc12k_from_scratch(cfg=cfg)
+            model = models.get_model(cfg)
+            model = model.to(device)
+            return model
     elif cfg.source_dataset.name == 'cifar10':
-        pretrained_model_path = f'/resnet18.pt'
         model = resnet18(pretrained=True)
         model = model.to(device)
         return model
@@ -33,22 +39,27 @@ def get_pretrained_model_on_source_dataset(cfg):
         raise ValueError(f"Invalid source dataset: {cfg.source_dataset.name}.")
 
 
-    
 
 
+##############################################################
+################### Train on source datasets #################
+##############################################################
 
+def train_zinc12k_from_scratch(cfg):
+    device = torch.device(f"cuda:{cfg.general.device}")
     logging.info(f"         Pre-trained model -- Setting wandb.")
-    u_wandb.set_wandb(cfg=cfg, on_neurons = False)
-    
-    logging.info(f"         Pre-trained model -- Loading source dataset {cfg.source_dataset.name}.")
+    u_wandb.set_wandb(cfg=cfg, on_neurons=False)
+
+    logging.info(
+        f"         Pre-trained model -- Loading source dataset {cfg.source_dataset.name}.")
     dataloader, _ = data.get_dataloader(cfg)
-    
+
     logging.info(f"         Pre-trained model -- Loading the model.")
     model = models.get_model(cfg)
 
     wandb.watch(model)
     model = model.to(device)
-    
+
     logging.info(f"         Pre-trained model -- Loading loss function.")
 
     critn, goal, task = training.get_loss_func(cfg=cfg)
@@ -65,9 +76,8 @@ def get_pretrained_model_on_source_dataset(cfg):
     logging.info(f"         Pre-trained model -- Loading evaluator.")
     eval = training.get_evaluator(cfg=cfg)
 
-
     logging.info(f"         Pre-trained model -- Starting Training.")
-    best_metrics = u_log.initialize_best_metrics(goal=goal)
+    best_metrics = u_log.initialize_best_metrics(cfg=cfg, goal=goal, training_on_source=True)
 
     pbar = tqdm(range(num_epochs))
     for epoch in pbar:
@@ -82,12 +92,12 @@ def get_pretrained_model_on_source_dataset(cfg):
         test_metric = training.eval_loop(
             model=model, loader=dataloader["test"], eval=eval, device=device, average_over=1, task=task)
         # =========================== logging  =========================== #
-        best_metrics = u_log.update_best_metrics(
-            best_metrics=best_metrics, val_metric=val_metric, test_metric=test_metric, epoch=epoch, goal=goal)
-        u_log.log_wandb(epoch=epoch, optim=optim, loss_list=loss_list, val_metric=val_metric,
-                        test_metric=test_metric, best_metrics=best_metrics)
+        best_metrics = u_log.update_best_metrics(cfg=cfg,
+                                                 best_metrics=best_metrics, val_metric=val_metric, test_metric=test_metric, epoch=epoch, goal=goal, training_on_source=True)
+        u_log.log_wandb(cfg=cfg, epoch=epoch, optim=optim, loss_list=loss_list, val_metric=val_metric,
+                        test_metric=test_metric, best_metrics=best_metrics, training_on_source=True)
         u_log.set_posfix(optim=optim, loss_list=loss_list, val_metric=val_metric,
-                        test_metric=test_metric, pbar=pbar)
+                         test_metric=test_metric, pbar=pbar)
         training.sched_step(cfg=cfg, sched=sched, val_metric=val_metric)
 
     # Ensure the directory exists
