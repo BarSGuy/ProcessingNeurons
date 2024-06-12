@@ -1,4 +1,5 @@
-# wandb sweep -p Sweep_neuron3 ./yamls/Sweep.yaml 
+# CUDA_VISIBLE_DEVICES=0 wandb sweep -p Sweep_neuron8 ./yamls/Sweep.yaml 
+# for i in {1..10}; do CUDA_VISIBLE_DEVICES=1 wandb agent guybs/Sweep_neuron8/bnzv6sqv & done
 
 program: main.py
 method: grid
@@ -22,21 +23,23 @@ parameters:
 
 # Model
   model__symmetry:
-    values: ["S_n, I"]
+    values: ["S_n", "I"]
   model__num_layers:
     values: [3]
   model__dim_embed:
-    values: [64]
+    values: [48, 16]
   model__residual:
     values: [True]
   model__task:
     value: "gap_minimization"
   model__dim_output:
-    value: 10
+    value: 1
 
 # Training
+  training__train_set_size_cap:
+    values: [100, 200, 300, 400, 500, 600, 700, 800, 1000]
   training__lr:
-    values: [0.0001, 0.001, 0.01]
+    values: [0.0001, 0.001]
   training__task:
     value: "regression"
   training__optim:
@@ -44,13 +47,13 @@ parameters:
   training__sched__type:
     value: "steplr"
   training__sched__step_size:
-    values: [50]
+    values: [10]
   training__sched__gamma:
     values: [0.5]
   training__wd:
     values: [0, 0.0001]
   training__epochs:
-    values: [200]
+    values: [100]
 
 command:
   - ${env}

@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
-
-
+import json
+import numpy as np
 def get_rc_curve(pred_gap, actual_gap):
     # Ensure coverages tensor is created on the same device as kappas for compatibility
     coverages = torch.tensor(
@@ -76,8 +76,96 @@ def plot_rc_curve(save_path, coverages1, risks1, legend1, coverages2, risks2, le
             format='pdf', dpi=300)
 
 
+def plot_mean_std_test_risks(file1, file2, file3, output_file = './output/mean_std_test_risks.pdf'):
+    # Load the data from the JSON files
+    with open(file1, 'r') as f:
+        data1 = json.load(f)
+    with open(file2, 'r') as f:
+        data2 = json.load(f)
+    with open(file3, 'r') as f:
+        data3 = json.load(f)
+
+    # Extract test_coverages (assuming they are the same across all files)
+    test_coverages = data1['test_coverages']
+
+    # Extract test_risks
+    test_risks_1 = data1['test_risks']
+    test_risks_2 = data2['test_risks']
+    test_risks_3 = data3['test_risks']
+
+    # Calculate mean and standard deviation of test_risks
+    test_risks_all = np.array([test_risks_1, test_risks_2, test_risks_3])
+    mean_test_risks = np.mean(test_risks_all, axis=0)
+    std_test_risks = np.std(test_risks_all, axis=0)
+    sem_test_risks = std_test_risks / np.sqrt(test_risks_all.shape[0])
+    
+    # Plot the mean test risks with standard deviation
+    plt.figure(figsize=(10, 6))
+    plt.errorbar(test_coverages, mean_test_risks, yerr=sem_test_risks,
+                 fmt='-o', capsize=5, label='Mean Test Risks with STD')
+    plt.xlabel('Test Coverages')
+    plt.ylabel('Mean Test Risks')
+    plt.title('Mean Test Risks as a Function of Test Coverages')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(output_file, format='pdf', dpi=300)
+    plt.show()
+
+
+def plot_comparison_mean_sem_test_risks(files1, label1, files2, label2, output_file='./output/mean_std_test_risks_two_methods.pdf'):
+    def load_and_compute_mean_sem(files):
+        # Load the data from the JSON files
+        datasets = [json.load(open(file, 'r')) for file in files]
+
+        # Extract test_coverages (assuming they are the same across all files)
+        test_coverages = datasets[0]['test_coverages']
+
+        # Extract test_risks
+        test_risks_all = np.array([data['test_risks'] for data in datasets])
+
+        # Calculate mean and SEM of test_risks
+        mean_test_risks = np.mean(test_risks_all, axis=0)
+        std_test_risks = np.std(test_risks_all, axis=0)
+        sem_test_risks = std_test_risks / np.sqrt(test_risks_all.shape[0])
+
+        return test_coverages, mean_test_risks, sem_test_risks
+
+    # Load and compute mean and SEM for the first set of files
+    test_coverages1, mean_test_risks1, sem_test_risks1 = load_and_compute_mean_sem(
+        files1)
+
+    # Load and compute mean and SEM for the second set of files
+    test_coverages2, mean_test_risks2, sem_test_risks2 = load_and_compute_mean_sem(
+        files2)
+
+    # Plot the mean test risks with SEM for both runs
+    plt.figure(figsize=(10, 6))
+    plt.errorbar(test_coverages1, mean_test_risks1,
+                 yerr=sem_test_risks1, fmt='-o', capsize=6, label=label1)
+    plt.errorbar(test_coverages2, mean_test_risks2,
+                 yerr=sem_test_risks2, fmt='-s', capsize=6, label=label2)
+
+    plt.xlabel('Coverage', fontsize=16)
+    plt.ylabel('Selective Risk', fontsize=16)
+    # plt.title('Comparison of Mean Test Risks as a Function of Test Coverages')
+    # Increase the font size of the ticks
+    plt.tick_params(axis='both', which='major', labelsize=14)
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(output_file)
+    plt.show()
 
 if __name__ == '__main__':
     pred_gap = torch.tensor([0.3, 0.1, 0.4, 0.2, 0.5])
     actual_gap = torch.tensor([0.2, 0.4, 0.3, 0.1, 0.5])
     get_rc_curve(pred_gap, actual_gap)
+
+    # plot_mean_std_test_risks(
+    #     file1='./output/gap_minimization/zinc12k/5622295645I',
+    #     file2='./output/gap_minimization/zinc12k/3092817727I',
+    #     file3='./output/gap_minimization/zinc12k/1347824332I',)
+
+    plot_comparison_mean_sem_test_risks(
+        files1=['./output/gap_minimization/zinc12k/1512913526S_n', './output/gap_minimization/zinc12k/8770004378S_n', './output/gap_minimization/zinc12k/9318345743S_n'], label1='Symmetry-based Model',
+        files2=['./output/gap_minimization/zinc12k/1347824332I', './output/gap_minimization/zinc12k/3092817727I', './output/gap_minimization/zinc12k/5622295645I'], label2='MLP',
+    )

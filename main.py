@@ -13,8 +13,18 @@
 # import utils.training as u_train
 # import json
 from utils.experiments import *
+from utils.rc_curve import *
 
-train_activation_model()
+# plot_mean_std_test_risks(
+#     file1='./output/gap_minimization/zinc12k/5622295645I',
+#     file2='./output/gap_minimization/zinc12k/3092817727I',
+#     file3='./output/gap_minimization/zinc12k/1347824332I',)
+
+plot_comparison_mean_sem_test_risks(
+    files1=['./output/gap_minimization/zinc12k/1512913526S_n', './output/gap_minimization/zinc12k/8770004378S_n', './output/gap_minimization/zinc12k/9318345743S_n'], label1='Symmetry-based Model',
+    files2=['./output/gap_minimization/zinc12k/1347824332I', './output/gap_minimization/zinc12k/3092817727I', './output/gap_minimization/zinc12k/5622295645I'], label2='MLP',
+    )
+# train_activation_model()
 # get_certainty_of_activation_model(task='certainty', source_dataset_name='zinc12k',
 #                                 run_number1='8816900536set', run_number2='3952329103none')
 exit()
