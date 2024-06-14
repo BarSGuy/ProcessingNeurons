@@ -33,3 +33,5 @@ source_dataset_training/__pycache__/training.cpython-38.pyc
 __pycache__/dataset_creator.cpython-38.pyc
 __pycache__/model.cpython-38.pyc
 activation_models/__pycache__/models.cpython-38.pyc
+main_old.py
+dataset_creator.py
