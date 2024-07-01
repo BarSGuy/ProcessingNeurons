@@ -1,3 +1,71 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+# import utils.synthetic_experiment as se
+# import experiments.Cifar10_exp_sets as ce
+# import experiments.Cifar10_exp_conv_multigrid as ce
+import experiments.Cifar10_exp_conv_cat as ce10
+import experiments.Cifar100_exp_conv_cat as ce100
+import experiments.ImageNet_exp_conv_cat as im
+from easydict import EasyDict as edict
+
+cfg = edict({
+    ## data
+    'dataset': 'imagenet',
+    'batch_size': 128,
+    
+    ## model
+    'model_symmetry': 'Cn',
+    'hidden_dim': 128,
+    
+    ## optimizer
+    'lr': 0.01,
+    'weight_decay': 0,
+    'num_epochs': 50,
+    
+    ## general
+    'seed': 42
+})
+
+
+if cfg.dataset == 'cifar10':
+    ce10.run(cfg=cfg)
+elif cfg.dataset == 'cifar100':
+    ce100.run(cfg=cfg)
+elif cfg.dataset == 'imagenet':
+    im.run(cfg=cfg)
+
+exit()
+# se.run(cfg=cfg)
+
+
+def plot_best_test_loss_from_csv(csv_file_path='./output/results.csv',
+                                 output_image_path='./output/best_test_loss.pdf'):
+    # Read the CSV file into a DataFrame
+    df = pd.read_csv(csv_file_path)
+
+    # Plot best_test_loss as a function of num_data_points_train for each model
+    for model in df['model'].unique():
+        model_df = df[df['model'] == model]
+        plt.plot(model_df['num_data_points_train'],
+                 model_df['best_test_loss'], marker='o', label=model)
+
+    # Add labels and title
+    plt.xlabel('Number of Training Data Points')
+    plt.ylabel('Best Test Loss')
+    plt.title(
+        'Best Test Loss vs. Number of Training Data Points for Different Models')
+    plt.legend()
+    plt.grid(True)
+    # Set log scale for x-axis and invert y-axis
+    plt.xscale('log')
+    plt.gca().invert_yaxis()
+    # Save the plot as an image file
+    plt.savefig(output_image_path)
+    plt.show()
+
+
+plot_best_test_loss_from_csv()
+exit()
 # from utils.rc_curve import plot_rc_curve_from_best_metrics
 # import utils.arguments as u_args
 # import utils.activations as u_act
