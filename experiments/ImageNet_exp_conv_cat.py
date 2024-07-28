@@ -29,8 +29,51 @@ import time
 from easydict import EasyDict as edict
 import json
 import logging
-import timm
 from pprint import pprint
+
+
+def get_rc_curves(run_id_Cn='9842046154', run_id_none='2751806447'):
+    path_Cn = os.path.abspath('/home/guy_b/ProcessingNeurons/outputs/ImageNet/' + run_id_Cn + '/metrics.json')
+    path_MLP = os.path.abspath('/home/guy_b/ProcessingNeurons/outputs/ImageNet/' + run_id_none + '/metrics.json')
+
+    
+    with open(path_Cn) as f:
+        metrics_Cn = json.load(f)
+        coverages_Cn = metrics_Cn["Ours"]["coverage"]
+        selective_risks_Cn = metrics_Cn["Ours"]["selective_risk"]
+        legend_Cn = "Ours"
+        coverages_SR = metrics_Cn["SR baseline"]["coverage"]
+        selective_risks_SR = metrics_Cn["SR baseline"]["selective_risk"]
+        legend_SR = "SR"
+        coverages_SR_Tmp_Scale = metrics_Cn["SR + tmp scale baseline"]["coverage"]
+        selective_risks_SR_Tmp_Scale = metrics_Cn["SR + tmp scale baseline"]["selective_risk"]
+        legend_SR_Tmp_Scale = "SR + Tmp Scale"
+        
+    with open(path_MLP) as f:
+        metrics_MLP = json.load(f)
+        coverages_MLP = metrics_MLP["Ours"]["coverage"]
+        selective_risks_MLP = metrics_MLP["Ours"]["selective_risk"]
+        legend_MLP = "MLP"
+    plt.figure(figsize=(10, 6))
+
+    plt.plot(coverages_Cn, selective_risks_Cn, label=legend_Cn)
+    plt.plot(coverages_SR, selective_risks_SR, label=legend_SR)
+    plt.plot(coverages_SR_Tmp_Scale, selective_risks_SR_Tmp_Scale, label=legend_SR_Tmp_Scale)
+    plt.plot(coverages_MLP, selective_risks_MLP, label=legend_MLP)
+
+    plt.xlabel('Coverage')
+    plt.ylabel('Selective Risk')
+    plt.title('Coverage vs Selective Risk')
+    plt.legend()
+    plt.grid(True)
+
+    # Save the plot as a PDF
+    output_path = os.path.abspath('/home/guy_b/ProcessingNeurons/outputs/ImageNet/coverage_vs_selective_risk.pdf')
+    plt.savefig(output_path, format='pdf')
+
+    plt.show()
+
+    
 
 def update_best_metrics(eval_dict_val, eval_dict_test, avg_loss_val, avg_loss_test,
                         best_metrics):
@@ -68,6 +111,9 @@ def update_best_metrics(eval_dict_val, eval_dict_test, avg_loss_val, avg_loss_te
     if eval_dict_val["AURC"] <= best_metrics["val_aurc"]:
         best_metrics["val_aurc"] = eval_dict_val["AURC"]
         best_metrics["test_aurc"] = eval_dict_test["AURC"]
+        best_metrics["coverage"] = eval_dict_test["coverage"]
+        best_metrics["selective_risk"] = eval_dict_test["selective_risk"]
+        
 
     # Check and update the best validation and test loss
     # assuming lower is better for loss
@@ -172,7 +218,7 @@ def register_hooks(cfg, model, H_W_dim=28):
         def hook(model, input, output):
             # print(f"{output.shape=}")
             if H_W_dim == 28:
-                # print(f"{output.shape=}")
+                print(f"{name=}__{output.shape=}")
                 found_tensor = True
                 if output.shape[2:] == torch.Size([56, 56]):
                     new_tensor = F.max_pool2d(output, kernel_size=2, stride=2)
@@ -182,8 +228,7 @@ def register_hooks(cfg, model, H_W_dim=28):
                     # print(new_tensor.shape)
                 elif output.shape[1:] == torch.Size([512]) or output.shape[1:] == torch.Size([1000]):
                     output = output.reshape(1, output.shape[1:][0], 1, 1)
-                    new_tensor = F.interpolate(output, size=(
-                        H_W_dim, H_W_dim), mode='nearest')
+                    new_tensor = output.expand(1, 1000, H_W_dim, H_W_dim)
                     # print(new_tensor.shape)
                 else: # output.shape[2:] == torch.Size([14, 14]):
                     new_tensor = F.interpolate(output, size=(H_W_dim, H_W_dim), mode='nearest')
@@ -193,6 +238,7 @@ def register_hooks(cfg, model, H_W_dim=28):
         return hook
 
     layers_to_hook = [
+        # TODO: add '11_layer1.0.bn2'
         # 'layer1.0.act2',
         'layer1.1.bn2',
         'layer2.1.bn2',
@@ -204,13 +250,15 @@ def register_hooks(cfg, model, H_W_dim=28):
 
     idx = 0
     for name, layer in model.named_modules():
-        print(name)
-        if name in layers_to_hook:
-            layer.register_forward_hook(get_activation(f"{idx}_{name}"))
-            idx += 1
+        # print(f"using layer {name}")    
+        # if name in layers_to_hook:
+        # print(f"registering hook for {name}")
+        layer.register_forward_hook(get_activation(f"{idx}_{name}"))
+        idx += 1
         # else:
         #     layer.register_forward_hook(get_activation(f"{idx}_{name}"))
         #     idx += 1
+    # exit()
     return activations
 
 
@@ -323,7 +371,17 @@ class ActivationsDataset_MLP(Dataset):
 
         def __getitem__(self, idx):
             # Extract tensors for the current index from each key
-            tensors_to_concat = [self.activations[key][idx].reshape(-1) for key in self.keys]
+            tensors_to_concat = []
+            for key in self.keys:
+                if key == '5_fc':
+                    activation = self.activations[key][idx][:, :1000, 0, 0].reshape(-1)
+                elif key == '4_avgpool':
+                    activation = self.activations[key][idx][:, :512, 0, 0].reshape(-1)
+                else:
+                    activation = self.activations[key][idx].reshape(-1)
+                tensors_to_concat.append(activation)
+            
+            # tensors_to_concat = [self.activations[key][idx].reshape(-1) for key in self.keys]
 
             # Concatenate along the second dimension (d)
             concatenated_tensor = torch.cat(tensors_to_concat, dim=0)
@@ -335,6 +393,8 @@ class ActivationsDataset_MLP(Dataset):
 
 
 def activation_datasets(cfg, model_symmetry = "Cn"):
+    # Set a fixed seed for reproducibility
+    torch.manual_seed(42)
     # model_names = timm.list_models(pretrained=True)
     # pprint(model_names)
     # exit()
@@ -343,15 +403,29 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
     original_model = models.resnet18(
         weights='IMAGENET1K_V1').to(cfg.general.device)
     
-    activations_path = './experiments/ImageNet_activations.pt'
-    correctness_labels_path = './experiments/ImageNet_correctness_labels.pt'
+    parent_path = './experiments/'
+    activations_path = os.path.abspath(parent_path + f"ImageNet_activations.pt")
+    correctness_labels_path = os.path.abspath(parent_path + f"ImageNet_correctness_labels.pt")
+    
+    # Define a seed for reproducibility
+    seed = 42
+
+    # Set the seed for PyTorch, NumPy, and Python random
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    # Define the worker_init_fn
+    def worker_init_fn(worker_id):
+        np.random.seed(seed + worker_id)
+        random.seed(seed + worker_id)
+    # print(activations_path)
+    # exit()
     if os.path.exists(activations_path):
         activations = torch.load(activations_path)
         if os.path.exists(correctness_labels_path):
             correctness_labels = torch.load(correctness_labels_path)
             print("Activation and correctness lables files loaded successfully.")
     else:
-
         # transform = timm.data.create_transform(
         #     **timm.data.transforms_factory.resolve_data_config(original_model.pretrained_cfg, model=original_model))
         
@@ -364,13 +438,15 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
 
         # Load the training dataset
         imagenet_test_dataset = datasets.ImageFolder(
-            root='/home/guy.b/Imgnet/val', transform=transform)
+            root='/home/guy_b/datasets/Imgnet/val', transform=transform)
+
 
 
         imagenet_test_dataloader = DataLoader(imagenet_test_dataset,
                                             batch_size=1,
                                             shuffle=True,
-                                            num_workers=4
+                                            num_workers=4,
+                                            worker_init_fn=worker_init_fn
                                             )
         original_model.eval()  # Set the model to evaluation mode
 
@@ -390,15 +466,13 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
                 correctness = (preds == labels.to(cfg.general.device)).float().cpu()  # 1 if correct, 0 if incorrect
                 correctness_labels.append(correctness)
                 counter += 1
-                if counter == 10000:
+                if counter == 1:
                     break
         logging.info("Activation and correctness lables files saved successfully.")
-        def save_activations(activations, correctness_labels, path):
-            torch.save(activations, os.path.join(
-                path, 'ImageNet_activations.pt'))
-            torch.save(correctness_labels, os.path.join(
-                path, 'ImageNet_correctness_labels.pt'))
-        save_activations(activations, correctness_labels, './experiments')
+        def save_activations(activations, correctness_labels, activations_path, correctness_labels_path):
+            torch.save(activations, activations_path)
+            torch.save(correctness_labels, correctness_labels_path)
+        save_activations(activations, correctness_labels, activations_path, correctness_labels_path)
     logging.info(f"Accuracy of original model on dataset: {sum(correctness_labels) / len(correctness_labels)}")
     # Create the dataset
     if model_symmetry == "Cn":
@@ -406,7 +480,6 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
     elif model_symmetry == "none":
         activations_dataset = ActivationsDataset_MLP(
             activations, correctness_labels)
-        
     d_0 = activations_dataset[0][0].shape[0]
     activations_shape  = activations_dataset[0][0].shape
 
@@ -414,8 +487,7 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
     # Logging the values with formatted strings
     logging.info(f"d_0: {d_0}, activations_shape: {activations_shape}")
     
-    # Set a fixed seed for reproducibility
-    torch.manual_seed(42)
+
 
     # Define the lengths for train, val, and test sets
     total_size = len(activations_dataset)
@@ -440,15 +512,22 @@ def activation_datasets(cfg, model_symmetry = "Cn"):
     logging.info(f"Test dataset size: {len(test_dataset)}")
     
     activations_loader_train = DataLoader(
-        train_dataset, batch_size=128, shuffle=True, num_workers=4)
+        train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
     activations_loader_val = DataLoader(
-        val_dataset, batch_size=128, shuffle=False, num_workers=4)
+        val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
     activations_loader_test = DataLoader(
-        test_dataset, batch_size=128, shuffle=False, num_workers=4)
-    
+        test_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+    # Iterate over the DataLoader and print the first element
+    for data in activations_loader_test:
+        if len(data[0].shape) == 4:
+            pass
+            # print(data[0][0, -10:, 0, 0])
+        elif len(data[0].shape) == 2:
+            pass
+            # print(data[0][0, -10:])
     activations_loader_train_and_val = DataLoader(
-        train_and_val_dataset, batch_size=128, shuffle=False, num_workers=4)
-    
+        train_and_val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+
     return activations_dataset, activations_loader_train, activations_loader_val, activations_loader_test, activations_loader_train_and_val, d_0, original_model
 
 def get_SR_baseline(results_dict, activations_loader_test):
@@ -459,8 +538,8 @@ def get_SR_baseline(results_dict, activations_loader_test):
 
     for batch in tqdm(activations_loader_test):
         x, y = batch[0], batch[1]
-        model_pred = x[:, -100:, 15, 15]
-        embed = x[:, -522:-100, 15, 15]
+        model_pred = x[:, -1000:, 15, 15]
+        embed = x[:, -1010:-1000, 15, 15]
         # Apply softmax to the predictions
         softmaxed_preds = torch.nn.functional.softmax(model_pred, dim=1)
 
@@ -491,7 +570,6 @@ def get_SR_baseline(results_dict, activations_loader_test):
 
     plot_tsne(embed_preds_tensor, ys_tensor)
     plot_histograms(SRs_list, ys)
-
 
 
 def train_loop(model, loader, optimizer, criterion, device, mlp_model=False):
@@ -602,7 +680,7 @@ def get_tmp_scale_baseline(cfg, results_dict, activations_loader_test, temperatu
     ys = []
     for batch in tqdm(activations_loader_test):
         x, y = batch[0], batch[1]
-        model_pred = x[:, -100:, 15, 15].to(cfg.general.device)
+        model_pred = x[:, -1000:, 15, 15].to(cfg.general.device)
         model_pred = temperature_scaling_model(model_pred)
         SRs, _ = torch.max(torch.nn.functional.softmax(
             model_pred, dim=1), dim=1)
@@ -648,7 +726,7 @@ class SimpleResNet(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # max_softmax = max(F.softmax(x[:, -100:, 15, 15], dim=1))
+        max_softmax = torch.max(F.softmax(x[:, -1000:, 15, 15], dim=1), dim=1)[0].reshape(-1, 1)
         
         # Block 1
         # identity = x
@@ -695,7 +773,9 @@ class SimpleResNet(nn.Module):
         features = x.view(x.size(0), -1)  # Flatten the tensor
         x = self.fc(features)
         
-        # x = x + max_softmax
+        x = self.sigmoid(x)
+        
+        x = x + max_softmax
         x = self.sigmoid(x)
         return x, features
 
@@ -762,6 +842,7 @@ def run(cfg):
     parser.add_argument('--lr', type=float, default=cfg.lr)
     parser.add_argument('--weight_decay', type=float, default=cfg.weight_decay)
     parser.add_argument('--num_epochs', type=int, default=cfg.num_epochs)
+    parser.add_argument('--step_size', type=int, default=cfg.step_size)
     parser.add_argument('--seed', type=int, default=cfg.seed)
 
     # Parse arguments
@@ -784,7 +865,6 @@ def run(cfg):
     wandb.init(settings=wandb.Settings(
         start_method='thread'), project="Synthetic experiment Neurons", name=tag, config=cfg)
 
-
     logging.info("""
     #######################################
     Getting activations dataset.
@@ -799,7 +879,6 @@ def run(cfg):
     #######################################
     """)
     get_SR_baseline(results_dict=results_dict, activations_loader_test=activations_loader_test)
-
     logging.info("""
     #######################################
     Getting Tmp Scale baseline.
@@ -818,18 +897,17 @@ def run(cfg):
     #######################################
     """)
     
+    
     if cfg.model_symmetry == "Cn":
         torch.manual_seed(cfg.seed)
         model = SimpleResNet(input_channels=d_0, hidden_dim=cfg.hidden_dim
                              ,num_classes=1).to(
             cfg.general.device)
-
         total_params = sum(p.numel() for p in model.parameters())
         logging.info(f"Number of parameter of Cn-based: {total_params}")
-    
     elif cfg.model_symmetry == "none":
         activations_dataset, activations_loader_train, activations_loader_val, activations_loader_test, activations_loader_train_and_val, d_0, original_model = activation_datasets(cfg=cfg, model_symmetry="none")
-        torch.manual_seed(cfg.seed)
+        torch.manual_seed(cfg.seed)    
         model = SimpleMLP(input_channels=d_0, hidden_dim=cfg.hidden_dim, num_classes=1).to(
             cfg.general.device)
         total_params = sum(p.numel() for p in model.parameters())
@@ -843,7 +921,7 @@ def run(cfg):
                              weight_decay=cfg.weight_decay)
     
     sched = torch.optim.lr_scheduler.StepLR(
-        optim, step_size=5, gamma=0.5)
+        optim, step_size=cfg.step_size, gamma=0.5)
     
     crit = nn.BCELoss()
 
@@ -869,7 +947,7 @@ def run(cfg):
             model=model, loader=activations_loader_train, optimizer=optim, criterion=crit, device=cfg.general.device)
         wandb.log({"epoch": epoch+1,
                    "Train Loss": avg_loss,
-                   "Train AUROC": total_auroc,
+                # "Train AUROC": total_auroc,
                    "Train Accuracy": total_accuracy})
 
         avg_loss_val, preds_val, ys_val = eval_loop(
@@ -914,7 +992,7 @@ def run(cfg):
         sched.step()
     
     results_dict["Ours"] = best_metrics
-    save_dict_to_json(dictionary=results_dict, base_dir="outputs/Cifar10",
+    save_dict_to_json(dictionary=results_dict, base_dir="outputs/ImageNet",
                       filename="metrics.json", run_id=run_id)
     wandb.finish()
     

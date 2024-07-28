@@ -3,35 +3,31 @@ import pandas as pd
 # import utils.synthetic_experiment as se
 # import experiments.Cifar10_exp_sets as ce
 # import experiments.Cifar10_exp_conv_multigrid as ce
-import experiments.Cifar10_exp_conv_cat as ce10
-import experiments.Cifar100_exp_conv_cat as ce100
 import experiments.ImageNet_exp_conv_cat as im
 from easydict import EasyDict as edict
 
 cfg = edict({
     ## data
     'dataset': 'imagenet',
-    'batch_size': 128,
+    'batch_size': 512,
     
     ## model
     'model_symmetry': 'Cn',
-    'hidden_dim': 128,
+    'hidden_dim': 64,
     
     ## optimizer
-    'lr': 0.01,
-    'weight_decay': 0,
-    'num_epochs': 50,
+    'lr': 0.001,
+    'weight_decay': 0.1,
+    'num_epochs': 10,
+    'step_size': 5,
     
     ## general
-    'seed': 42
+    'seed': 0
 })
 
-
-if cfg.dataset == 'cifar10':
-    ce10.run(cfg=cfg)
-elif cfg.dataset == 'cifar100':
-    ce100.run(cfg=cfg)
-elif cfg.dataset == 'imagenet':
+# im.get_rc_curves()
+# exit()
+if cfg.dataset == 'imagenet':
     im.run(cfg=cfg)
 
 exit()
