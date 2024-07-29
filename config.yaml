@@ -1,12 +1,12 @@
 # Task
-task: "uncertainty"
+task: "distill_knowledge"
 
 # Original model configuration
 original_model__num_layers: 6
 original_model__lr: 0.001
 original_model__step_size: 300
 original_model__gamma: 0.5
-original_model__epochs: 1
+original_model__epochs: 1000
 original_model__batch_size: 128
 original_model__in_dim: 21
 original_model__emb_dim: 128
@@ -16,10 +16,10 @@ original_model__num_tasks: 1
 original_model__model_name: zinc-model
 
 # Knowledge distillation model configuration
-knowledge_distillation__epochs: 1
+knowledge_distillation__epochs: 1000
 knowledge_distillation__num_layers: 6
 knowledge_distillation__batch_size: 128
-knowledge_distillation__emb_dim: 640
+knowledge_distillation__emb_dim: 128
 knowledge_distillation__learning_rate: 0.001
 knowledge_distillation__step_size: 300
 knowledge_distillation__gamma: 0.5
@@ -31,10 +31,10 @@ knowledge_distillation__metrics_file: distilled_model_metrics
 
 
 # Uncertainty estimation model configuration
-uncertainty_estimation__epochs: 1
+uncertainty_estimation__epochs: 1000
 uncertainty_estimation__num_layers: 6
 uncertainty_estimation__batch_size: 128
-uncertainty_estimation__emb_dim: 640
+uncertainty_estimation__emb_dim: 128
 uncertainty_estimation__learning_rate: 0.001
 uncertainty_estimation__step_size: 300
 uncertainty_estimation__gamma: 0.5

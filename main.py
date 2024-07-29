@@ -17,6 +17,8 @@ Description: This script performs the following tasks on the Zinc12k dataset:
 # TODO: Add support of config file
 # TODO: Add support to wandb sweep
 # TODO: add baselines
+import matplotlib.pyplot as plt
+from PIL import Image
 from easydict import EasyDict as edict
 import argparse
 import yaml
@@ -316,6 +318,7 @@ def train_from_scratch(cfg, use_split_indices=False):
             'best_val_loss': val_mae,
             'best_test_loss': test_mae,
         }
+        return metrics
     else:
         print(f"{model_name} does not exist. Will train...")
 
@@ -349,7 +352,7 @@ def train_from_scratch(cfg, use_split_indices=False):
               f'Test: {test_mae:.4f}, Best Val: {best_val_mae:.4f}, Test @ Best Val: {test_at_best_val:.4f}')
     
     print("Loading the best model for final evaluation...")
-    model.load_state_dict(torch.load(model_name + '.pt'))
+    # model.load_state_dict(torch.load(model_name + '.pt'))
     val_mae = test(model, val_loader, device)
     test_mae = test(model, test_loader, device)
     print(f'Final Test Loss: {test_mae:.4f}')
@@ -396,13 +399,22 @@ class GNNnetwork_no_feature_encoding(torch.nn.Module):
         self.gnn_layers = torch.nn.ModuleList()
         self.bn_layers = torch.nn.ModuleList()
         for i in range(num_layers):
-            self.gnn_layers.append(
+            if i == 0:
+                self.gnn_layers.append(
                 CustomGINE(
-                    emb_dim,
+                    in_dim,
                     emb_dim,
                     track_running_stats=track_running_stats,
                 )
             )
+            else:          
+                self.gnn_layers.append(
+                    CustomGINE(
+                        emb_dim,
+                        emb_dim,
+                        track_running_stats=track_running_stats,
+                    )
+                )
             self.bn_layers.append(
                 torch.nn.BatchNorm1d(
                     emb_dim, track_running_stats=track_running_stats)
@@ -428,7 +440,10 @@ class GNNnetwork_no_feature_encoding(torch.nn.Module):
             h = torch.relu(bn(gnn(x, edge_index, edge_attr)))
 
             if self.add_residual:
-                x = h + x
+                if x.shape[1] == h.shape[1]:
+                    x = h + x
+                else:
+                    x = h
             else:
                 x = h
 
@@ -442,7 +457,7 @@ class GNNnetwork_no_feature_encoding(torch.nn.Module):
 #                Activations loader                      #
 ##########################################################
 
-def load_pretrained_gnn_model(path='zinc-model_to_boost'):
+def load_pretrained_original_gnn_model(path='zinc-model_to_boost'):
     """
     Loads a pretrained GNN model.
 
@@ -558,7 +573,7 @@ def create_geometric_dataset(activations, true_labels, pred_labels, edge_indices
     - last_layer_idx (int): Index of the last layer. Default is 5.
 
     Returns:
-    - CustomDataset: The created geometric dataset.
+    - My_CustomDataset: The created geometric dataset.
     """
     data_list = []
 
@@ -581,13 +596,11 @@ def create_geometric_dataset(activations, true_labels, pred_labels, edge_indices
             edge_index=torch.from_numpy(edge_indices[i]),
             edge_attr=torch.from_numpy(edge_attrs[i])
         )
-
         data_list.append(data)
+    return My_CustomDataset(data_list)
 
-    return CustomDataset(data_list)
 
-
-class CustomDataset(Dataset):
+class My_CustomDataset(Dataset):
     """
     Custom dataset for geometric data.
 
@@ -595,9 +608,10 @@ class CustomDataset(Dataset):
     - data_list (list): List of data objects.
     """
     def __init__(self, data_list):
+        super().__init__() 
         self.data_list = data_list
 
-    def __len__(self):
+    def len(self):
         return len(self.data_list)
 
     def get(self, idx):
@@ -626,7 +640,6 @@ def get_all_zinc12k_activations(use_split_indices=False,  split='train', model_n
     path = "/tmp"
 
     # Load dataset
-    # TODO: modify from here to get the relevant datasets
     if split == 'val':
         loader = ZINC(path, subset=True, split=split)
         loader = DataLoader(loader, batch_size=1)
@@ -634,16 +647,20 @@ def get_all_zinc12k_activations(use_split_indices=False,  split='train', model_n
         loader = ZINC(path, subset=True, split=split)
         loader = DataLoader(loader, batch_size=1)
     elif split == 'train':
-        train_dataset = ZINC(path, subset=True, split=split)
+        loader = ZINC(path, subset=True, split=split)
         if use_split_indices == True:
             # Get indices for the split
             _, train_indices = load_train_split_indices()
             # Create subsets using the indices
-            loader = Subset(train_dataset, train_indices)
+            loader = Subset(loader, train_indices)
         loader = DataLoader(loader, batch_size=1)
 
     # Load model
-    model = load_pretrained_gnn_model(model_name)
+    if use_split_indices == True:
+        model_name = model_name + '_trained_on_5k_only'
+        model = load_pretrained_original_gnn_model(model_name)
+    else:
+        model = load_pretrained_original_gnn_model(model_name)
     model = model.to(device)
 
     # Get all activations
@@ -657,23 +674,22 @@ def get_all_activations_geometric_datasets(use_split_indices=False):
     Gets all activations datasets for train, val, and test splits.
 
     Returns:
-    - CustomDataset: Train dataset with activations.
-    - CustomDataset: Validation dataset with activations.
-    - CustomDataset: Test dataset with activations.
+    - My_CustomDataset: Train dataset with activations.
+    - My_CustomDataset: Validation dataset with activations.
+    - My_CustomDataset: Test dataset with activations.
     """
     print("Collecting train...")
     if use_split_indices == True:
         print("Loading the second 5000 samples")
-    activations_train, true_labels_train, pred_labels_train, edge_indices_train, edge_attrs_train = get_all_zinc12k_activations(use_split_indices=True,
-            split='train')
+    activations_train, true_labels_train, pred_labels_train, edge_indices_train, edge_attrs_train = get_all_zinc12k_activations(split='train', use_split_indices=use_split_indices)
     print("Done!")
     print("Collecting val...")
     activations_val, true_labels_val, pred_labels_val, edge_indices_val, edge_attrs_val = get_all_zinc12k_activations(
-        split='val')
+        split='val', use_split_indices=use_split_indices)
     print("Done!")
     print("Collecting test...")
     activations_test, true_labels_test, pred_labels_test, edge_indices_test, edge_attrs_test = get_all_zinc12k_activations(
-        split='test')
+        split='test', use_split_indices=use_split_indices)
     print("Done!")
 
     neurons_dataset_train = create_geometric_dataset(
@@ -692,7 +708,7 @@ def get_all_activations_geometric_datasets(use_split_indices=False):
 
 
 ##########################################################
-def distill_knowledge_to_neurons_model(cfg, epochs=1):
+def distill_knowledge_to_neurons_model(cfg):
     """
     Distills knowledge from the original model to a new model using activations datasets.
 
@@ -730,7 +746,7 @@ def distill_knowledge_to_neurons_model(cfg, epochs=1):
         in_dim=640,
         emb_dim=cfg.knowledge_distillation__emb_dim,
         add_residual=cfg.knowledge_distillation__add_residual,
-        track_running_stats=cfg.knowledge_distillation__track_running_statscfue,
+        track_running_stats=cfg.knowledge_distillation__track_running_stats,
         num_tasks=cfg.knowledge_distillation__num_tasks,
     ).to(device)
 
@@ -790,7 +806,7 @@ def distill_knowledge_to_neurons_model(cfg, epochs=1):
     
     metrics = {}
     print("Starting training of the distilled model...")
-    for epoch in tqdm(range(epochs), desc="Distilling knowledge"):
+    for epoch in tqdm(range(cfg.knowledge_distillation__epochs), desc="Distilling knowledge"):
         
         train_loss = train(model, optimizer, neurons_train_dataloader, device)
         
@@ -831,8 +847,8 @@ def distill_knowledge_to_neurons_model(cfg, epochs=1):
             f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Best Val Loss: {best_val_loss:.4f}, , Test Loss: {test_loss:.4f}, Best Test Loss: {best_test_loss:.4f}')
     
     print("Loading the best distilled model for final evaluation...")
-    model.load_state_dict(torch.load(
-        cfg.knowledge_distillation__model_name + '.pt'))
+    # model.load_state_dict(torch.load(
+    #     cfg.knowledge_distillation__model_name + '.pt'))
     val_loss = test(model, neurons_val_dataloader, device)
     test_loss = test(model, neurons_test_dataloader, device)
     print(f'Final Test Loss: {test_loss:.4f}')
@@ -877,8 +893,11 @@ def calculate_metrics(true_gap, pred_gap, true_labels, pred_labels):
     # metrics for neurons' model in improving performance
     original_model_mae = torch.abs(true_labels - pred_labels).mean().item()
     booster_model_mae = torch.abs(
-        true_labels - (pred_labels + pred_gap)).mean().item()
-
+        true_labels - (pred_labels + torch.from_numpy(pred_gap).to(true_labels.device))).mean().item()
+    
+    plt.figure()
+    plt.plot(coverages, risks)
+    
     return {
         'Neurons_MAE': mae,
         'Neurons_MSE': mse,
@@ -889,6 +908,7 @@ def calculate_metrics(true_gap, pred_gap, true_labels, pred_labels):
         'Neurons_risks': risks,
         'Original_model_MAE': original_model_mae,
         'Booster_model_MAE': booster_model_mae,
+        'rc_curve': wandb.Image(plt)
         #
 
     }
@@ -935,7 +955,7 @@ def load_train_split_indices(size_of_actual_train=5000):
     - train_indices (numpy.ndarray): Indices for the Train_dataset.
     - boost_indices (numpy.ndarray): Indices for the Train_Boost_dataset.
     """
-    with open(f'split_indices_{size_of_actual_train}.pkl', 'wb') as f:
+    with open(f'split_indices_{size_of_actual_train}.pkl', 'rb') as f:
         train_indices, boost_indices = pickle.load(f)
 
     return train_indices, boost_indices
@@ -951,7 +971,7 @@ def estimate_uncertainty(cfg):
     """
     print("Starting training of the original model...")
     print("Training on 5000 samples (only) instead of 10000 (leaves the other 5000 for training the neurons model for uncertainty)")
-    metrics_zinc_model = train_from_scratch(use_split_indices=True)
+    metrics_zinc_model = train_from_scratch(cfg, use_split_indices=True)
     print("Original model training completed.")
 
     print("Collecting activations...")
@@ -1077,7 +1097,7 @@ def estimate_uncertainty(cfg):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_test_loss = test_loss
-            torch.save(model.state_dict(), cfg.uncertainty_neuron_model + '.pt')
+            # torch.save(model.state_dict(), cfg.uncertainty_estimation__model_name + '.pt')
             metrics = {
                 'epoch': epoch + 1,
                 'train_loss': train_loss,
@@ -1085,8 +1105,8 @@ def estimate_uncertainty(cfg):
                 'test_loss': test_loss,
                 'best_val_loss': best_val_loss,
                 'best_test_loss': best_test_loss,
-                **{f'val_{k}': v for k, v in metrics_val.items()},
-                **{f'test_{k}': v for k, v in metrics_test.items()}
+                **{f'best_val_{k}': v for k, v in metrics_val.items()},
+                **{f'best_test_{k}': v for k, v in metrics_test.items()}
             }
 
         # Log metrics to wandb
@@ -1095,17 +1115,19 @@ def estimate_uncertainty(cfg):
             'train_loss': train_loss,
             'val_loss': val_loss,
             'test_loss': test_loss,
-            'best_val_loss': best_val_loss,
-            'best_test_loss': best_test_loss,
+            # 'best_val_loss': best_val_loss,
+            # 'best_test_loss': best_test_loss,
             **{f'val_{k}': v for k, v in metrics_val.items()},
-            **{f'test_{k}': v for k, v in metrics_test.items()}
+            **{f'test_{k}': v for k, v in metrics_test.items()},
+            "val_rc_curve": metrics_val['rc_curve'],
+            "test_rc_curve": metrics_test['rc_curve'],
         })
 
         print(
             f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Best Val Loss: {best_val_loss:.4f}, , Test Loss: {test_loss:.4f}, Best Test Loss: {best_test_loss:.4f}')
 
     print("Loading the best uncertainty model for final evaluation...")
-    model.load_state_dict(torch.load(cfg.uncertainty_neuron_model + '.pt'))
+    # model.load_state_dict(torch.load(cfg.uncertainty_estimation__model_name + '.pt'))
     val_loss, val_true_gaps, val_pred_gaps, val_true_labels, val_pred_labels = test(
         model, neurons_val_dataloader, device)
 
@@ -1135,9 +1157,13 @@ if __name__ == "__main__":
     args = parse_args(cfg)
     cfg = edict(vars(args))
 
-    # get_train_split_indices()
-    distill_knowledge_to_neurons_model(cfg)
-    estimate_uncertainty(cfg)
+    get_train_split_indices()
+    if cfg.task == "uncertainty_estimation":
+        estimate_uncertainty(cfg)
+    elif cfg.task == "distill_knowledge":
+        distill_knowledge_to_neurons_model(cfg)
+    
+    
     exit()
 
 ##################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################
@@ -1208,9 +1234,9 @@ def split_dataset(dataset, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15, see
     val_data_list = [dataset[i] for i in val_indices]
     test_data_list = [dataset[i] for i in test_indices]
 
-    train_dataset = CustomDataset(train_data_list)
-    val_dataset = CustomDataset(val_data_list)
-    test_dataset = CustomDataset(test_data_list)
+    train_dataset = My_CustomDataset(train_data_list)
+    val_dataset = My_CustomDataset(val_data_list)
+    test_dataset = My_CustomDataset(test_data_list)
 
     return train_dataset, val_dataset, test_dataset
 
@@ -1342,7 +1368,7 @@ def train_neurons_model(train_dataset, val_dataset, test_dataset):
             print('Early stopping')
             break
 
-    model.load_state_dict(torch.load('best_neurons_model.pt'))
+    # model.load_state_dict(torch.load('best_neurons_model.pt'))
     val_loss, _, _, _, _= evaluate(model, neurons_val_dataloader, device)
     test_loss, _, _, _, _ = evaluate(model, neurons_test_dataloader, device)
     print(f'Test Loss: {test_loss:.4f}')
