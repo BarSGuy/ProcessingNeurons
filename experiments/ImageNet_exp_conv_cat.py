@@ -625,6 +625,7 @@ def eval_loop(model, loader, criterion, device):
     return avg_loss, preds.cpu().tolist(), ys.cpu().tolist()
 
 
+
 class TemperatureScaling(nn.Module):
     def __init__(self):
         super(TemperatureScaling, self).__init__()
