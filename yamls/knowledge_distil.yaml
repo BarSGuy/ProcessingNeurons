@@ -1,0 +1,44 @@
+# wandb sweep -p Sweep_knowledge_distilation_zinc_12k ./yamls/knowledge_distil.yaml 
+
+
+# for i in {0..7}; do CUDA_VISIBLE_DEVICES=$i wandb agent guybs/Sweep_knowledge_distilation_zinc_12k/qzvdpa88 & done
+
+program: main.py
+method: grid
+parameters:
+  # General
+  device:
+    value: 0
+  task:
+    value: "distill_knowledge"
+  seed:
+    value: 0
+
+
+# Knowledge Distillation Model Configuration
+  knowledge_distillation__epochs:
+    values: [100] # 1000
+  knowledge_distillation__num_layers:
+    values: [3] # 6
+  knowledge_distillation__batch_size:
+    values: [128] # 128
+  knowledge_distillation__emb_dim:
+    values: [32, 64, 128] # 128
+  knowledge_distillation__learning_rate:
+    values: [0.01, 0.001, 0.0001] # 0.001
+  knowledge_distillation__step_size:
+    values: [30] # 300
+  knowledge_distillation__gamma:
+    values: [0.5] # 0.5
+  knowledge_distillation__num_tasks:
+    values: [1] # 1
+  knowledge_distillation__add_residual:
+    values: [true] # true
+  knowledge_distillation__metrics_file:
+    values: ["distilled_model_metrics"]
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args}

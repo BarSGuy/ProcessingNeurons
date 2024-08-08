@@ -1,5 +1,7 @@
-# Task
+# General
 task: "distill_knowledge"
+device: 0
+seed: 0
 
 # Original model configuration
 original_model__num_layers: 6

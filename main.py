@@ -270,9 +270,7 @@ def train_from_scratch(cfg, use_split_indices=False):
     - dict: Metrics from the best model during training.
     """
     model_name = cfg.original_model__model_name
-    torch.manual_seed(5)
-    np.random.seed(5)
-    random.seed(5)
+
 
     path = "/tmp"
 
@@ -297,7 +295,8 @@ def train_from_scratch(cfg, use_split_indices=False):
         test_dataset, batch_size=cfg.original_model__batch_size)
 
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{cfg.device}' if torch.cuda.is_available() else 'cpu')
+    
 
     model = GNNnetwork(
         num_layers=cfg.original_model__num_layers,
@@ -307,6 +306,8 @@ def train_from_scratch(cfg, use_split_indices=False):
         track_running_stats=cfg.original_model__track_running_stats,
         num_tasks=cfg.original_model__num_tasks,
     ).to(device)
+    total_params = sum(param.numel() for param in model.parameters())
+    cfg.original_model_parmas = total_params
     if os.path.isfile(model_name + '.pt'):
         print(f"{model_name} exists. Inferencing using that model...")
         model.load_state_dict(torch.load(model_name + '.pt'))
@@ -619,7 +620,31 @@ class My_CustomDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.get(idx)
+    
+    def save(self, file_path):
+        """
+        Save the dataset to a file.
 
+        Parameters:
+        - file_path (str): Path to the file where the dataset will be saved.
+        """
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.data_list, f)
+
+    @classmethod
+    def load(cls, file_path):
+        """
+        Load the dataset from a file.
+
+        Parameters:
+        - file_path (str): Path to the file from which the dataset will be loaded.
+
+        Returns:
+        - My_CustomDataset: An instance of My_CustomDataset with the loaded data.
+        """
+        with open(file_path, 'rb') as f:
+            data_list = pickle.load(f)
+        return cls(data_list)
 
 def get_all_zinc12k_activations(use_split_indices=False,  split='train', model_name='zinc-model'):
     """
@@ -636,7 +661,7 @@ def get_all_zinc12k_activations(use_split_indices=False,  split='train', model_n
     - list: Edge indices.
     - list: Edge attributes.
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{cfg.device}' if torch.cuda.is_available() else 'cpu')
     path = "/tmp"
 
     # Load dataset
@@ -715,18 +740,43 @@ def distill_knowledge_to_neurons_model(cfg):
     Returns:
     - dict: Metrics from the best model during distillation.
     """
+    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    random.seed(cfg.seed)
     print("Starting training of the original model...")
     metrics_zinc_model = train_from_scratch(cfg, use_split_indices=False)
     print("Original model training completed.")
     
-    print("Collecting activations...")
-    train_dataset, val_dataset, test_dataset = get_all_activations_geometric_datasets()
-    print("Activations collected.")
+    print("Collecting activations...")   
+    def load_or_generate_datasets():
+        train_file = './activations_for_knowledge_distillation/train_dataset.pkl'
+        val_file = './activations_for_knowledge_distillation/val_dataset.pkl'
+        test_file = './activations_for_knowledge_distillation/test_dataset.pkl'
+
+        if os.path.exists(train_file) and os.path.exists(val_file) and os.path.exists(test_file):
+            print("Loading existing activations datasets.")
+            train_dataset = My_CustomDataset.load(train_file)
+            val_dataset = My_CustomDataset.load(val_file)
+            test_dataset = My_CustomDataset.load(test_file)
+        else:
+            print("Inferencing to get activations datasets.")
+            train_dataset, val_dataset, test_dataset = get_all_activations_geometric_datasets()
+            os.makedirs('./activations_for_knowledge_distillation', exist_ok=True)
+            train_dataset.save(train_file)
+            val_dataset.save(val_file)
+            test_dataset.save(test_file)
+
+        return train_dataset, val_dataset, test_dataset
     
+    train_dataset, val_dataset, test_dataset = load_or_generate_datasets()  
+    print("Activations collected.")
     print("Logging into Weights & Biases...")
     
     wandb.login(key='1b14383181f638ed8622970eb48b622a876f45dd')
-    wandb.init(project=cfg.wandb__project, entity="guybs")
+    
+    tag = f"Task_{cfg.task}||Epochs_{cfg.knowledge_distillation__epochs}||Num_layers_{cfg.knowledge_distillation__num_layers}||Learning_rate_{cfg.knowledge_distillation__learning_rate}||Num_layers_{cfg.knowledge_distillation__num_layers}||Emb_dim_{cfg.knowledge_distillation__emb_dim}||Add_residual_{cfg.knowledge_distillation__add_residual}||Step_size_{cfg.knowledge_distillation__step_size}||Gamma_{cfg.knowledge_distillation__gamma}"
+    
+    wandb.init(project=cfg.wandb__project, entity="guybs", name=tag)
     
     neurons_train_dataloader = DataLoader(
         train_dataset, batch_size=cfg.knowledge_distillation__batch_size, shuffle=True)
@@ -737,7 +787,7 @@ def distill_knowledge_to_neurons_model(cfg):
     neurons_test_dataloader = DataLoader(
         test_dataset, batch_size=cfg.knowledge_distillation__batch_size, shuffle=False)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{cfg.device}' if torch.cuda.is_available() else 'cpu')
 
 
     # Initialize the model
@@ -749,7 +799,9 @@ def distill_knowledge_to_neurons_model(cfg):
         track_running_stats=cfg.knowledge_distillation__track_running_stats,
         num_tasks=cfg.knowledge_distillation__num_tasks,
     ).to(device)
-
+    total_params = sum(param.numel() for param in model.parameters())
+    cfg.distill_knowledge_model_parmas = total_params
+    wandb.config = cfg
     optimizer = optim.Adam(
         model.parameters(), lr=cfg.knowledge_distillation__learning_rate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -819,29 +871,29 @@ def distill_knowledge_to_neurons_model(cfg):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_test_loss = test_loss
-            torch.save(model.state_dict(), cfg.knowledge_distillation__model_name + '.pt')
+            # torch.save(model.state_dict(), cfg.knowledge_distillation__model_name + '.pt')
             metrics = {
                 'epoch': epoch + 1,
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-                'test_loss': test_loss,
-                'best_val_loss': best_val_loss,
-                'best_test_loss': best_test_loss,
-                'original_best_val_loss': metrics_zinc_model['best_val_loss'],
-                'original_best_test_loss': metrics_zinc_model['best_test_loss'],
+                'train_MAE': train_loss,
+                'validation_MAE': val_loss,
+                'test_MAE': test_loss,
+                'best_validation_MAE': best_val_loss,
+                'best_test_MAE_based_on_val': best_test_loss,
+                'original_model_best_validation_MAE': metrics_zinc_model['best_val_loss'],
+                'original_model_best_test_MAE_based_on_val': metrics_zinc_model['best_test_loss'],
             }
 
         # Log metrics to wandb
         wandb.log({
-            'epoch': epoch + 1,
-            'train_loss': train_loss,
-            'val_loss': val_loss,
-            'test_loss': test_loss,
-            'best_val_loss': best_val_loss,
-            'best_test_loss': best_test_loss,
-            'original_best_val_loss': metrics_zinc_model['best_val_loss'],
-            'original_best_test_loss': metrics_zinc_model['best_test_loss'],
-        })
+                'epoch': epoch + 1,
+                'train_MAE': train_loss,
+                'validation_MAE': val_loss,
+                'test_MAE': test_loss,
+                'best_validation_MAE': best_val_loss,
+                'best_test_MAE_based_on_val': best_test_loss,
+                'original_model_best_validation_MAE': metrics_zinc_model['best_val_loss'],
+                'original_model_best_test_MAE_based_on_val': metrics_zinc_model['best_test_loss'],
+            })
 
         print(
             f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Best Val Loss: {best_val_loss:.4f}, , Test Loss: {test_loss:.4f}, Best Test Loss: {best_test_loss:.4f}')
@@ -991,7 +1043,7 @@ def estimate_uncertainty(cfg):
     neurons_test_dataloader = DataLoader(
         test_dataset, batch_size=cfg.uncertainty_estimation__batch_size, shuffle=False)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{cfg.device}' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the model
     model = GNNnetwork_no_feature_encoding(
@@ -1258,7 +1310,7 @@ def train_neurons_model(train_dataset, val_dataset, test_dataset):
     neurons_test_dataloader = DataLoader(
         test_dataset, batch_size=128, shuffle=False)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{cfg.device}' if torch.cuda.is_available() else 'cpu')
 
 
     # Initialize the model
